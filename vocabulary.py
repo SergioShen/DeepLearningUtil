@@ -7,6 +7,7 @@
 
 
 import copy
+import os
 
 
 class Vocabulary(object):
@@ -117,3 +118,32 @@ class Vocabulary(object):
             self.add(item)
         for item in not_reserved:
             self.add(item)
+
+    def save(self, path, override=False):
+        """
+        Save vocabulary to a file
+        :param path: save path
+        :param override: override the file if *path* already exists
+        :return: None
+        """
+        if not override and os.path.exists(path):
+            raise FileExistsError
+
+        file = open(path, 'w')
+        for index in range(self.size()):
+            file.write(self.index_to_word[index] + '\n')
+        file.close()
+
+    def load(self, path):
+        """
+        Load vocabulary from file
+        :param path: vocabulary path
+        :return: None
+        """
+        if not os.path.exists(path):
+            raise FileNotFoundError
+
+        file = open(path, 'r')
+        for line in file:
+            self.add(line.strip())
+        file.close()
