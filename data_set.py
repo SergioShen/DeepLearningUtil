@@ -61,7 +61,9 @@ class BasicDataSet(object):
             self.shuffle()
             self.pointer = 0
 
-        return [self[i] for i in range(self.pointer, self.pointer + batch_size)]
+        data = [self[i] for i in range(self.pointer, self.pointer + batch_size)]
+        self.pointer += batch_size
+        return data
 
     def random_batch(self, batch_size=None):
         """
