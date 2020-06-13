@@ -4,6 +4,3 @@
 # @Author: Shen Sijie
 # @File: __init__.py
 # @Project: DeepLearningTemplates
-
-__all__ = ['data_set', 'logger', 'vocabulary', 'mail_sender']
-from dlutil import *
