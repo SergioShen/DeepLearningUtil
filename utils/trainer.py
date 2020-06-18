@@ -12,11 +12,12 @@ from abc import abstractmethod
 
 
 class Trainer:
-    def __init__(self, model, optimizer, loss_function, logger, writer, train_params):
+    def __init__(self, model, optimizer, lr_scheduler, loss_function, logger, writer, train_params):
         self.model = model
         self.logger = logger
         self.writer = writer
         self.optimizer = optimizer
+        self.lr_scheduler = lr_scheduler
         self.loss_function = loss_function
         self.output_dir = Path(train_params['output_dir'])
         self.batch_size = train_params['batch_size']
@@ -29,11 +30,14 @@ class Trainer:
 
     def save_model(self, epoch):
         checkpoint = dict()
+        checkpoint['model'] = self.model.state_dict()
+        checkpoint['optimizer'] = self.optimizer.state_dict()
+        checkpoint['lr_scheduler'] = self.lr_scheduler.state_dict()
+        checkpoint['loss_function'] = self.loss_function
+
+        checkpoint['step'] = self.step
         checkpoint['epoch'] = epoch
         checkpoint['batch_size'] = self.batch_size
-        checkpoint['model'] = self.model
-        checkpoint['optimizer'] = self.optimizer
-        checkpoint['loss_function'] = self.loss_function
 
         save_path = self.output_dir / ('%0.3d.epoch.pt' % epoch)
         torch.save(checkpoint, save_path)
@@ -43,11 +47,14 @@ class Trainer:
             checkpoint = torch.load(model_path, map_location='cuda:0')
         else:
             checkpoint = torch.load(model_path, map_location='cpu')
+        self.model.load_state_dict(checkpoint['model'])
+        self.optimizer.load_state_dict(checkpoint['optimizer'])
+        self.lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
+        self.loss_function = checkpoint['loss_function']
+
+        self.step = checkpoint['step']
         self.start_epoch = checkpoint['epoch'] + 1
         self.batch_size = checkpoint['batch_size']
-        self.model = checkpoint['model']
-        self.optimizer = checkpoint['optimizer']
-        self.loss_function = checkpoint['loss_function']
 
     def train(self, train_data, valid_data=None, test_data=None, inference_every_epoch=False):
         self.model.train()
@@ -61,6 +68,8 @@ class Trainer:
         epoch_loss = 0
         iterator = torchtext.data.iterator.Iterator(train_data, self.batch_size, shuffle=True, device=device)
 
+        for _ in range(self.start_epoch - 1):
+            iterator.init_epoch()
         for epoch in range(self.start_epoch, self.n_epochs + 1):
             self.logger.info('Epoch: %d, step: %d' % (epoch, self.step))
             iterator.init_epoch()
@@ -75,6 +84,7 @@ class Trainer:
                     print_loss_avg = print_loss / self.print_step
                     print_loss = 0
                     self.logger.info('Progress %.2f%%, Train loss: %.6f', self.step / total_steps * 100, print_loss_avg)
+                    self.writer.add_scalar('lr', self.optimizer.param_groups[0]['lr'], self.step)
                     self.handle_print_other_infos()
 
                 self.step += 1
@@ -86,12 +96,14 @@ class Trainer:
 
             epoch_loss_avg = epoch_loss / steps_per_epoch
             epoch_loss = 0
+            self.cache['epoch_loss_avg'] = epoch_loss_avg
             self.writer.add_scalar('loss/train_loss', epoch_loss_avg, self.step)
             self.logger.info('Finished epoch %d: Train loss: %.6f' % (epoch, epoch_loss_avg))
 
             # Evaluate the model with dev and test data
             if valid_data:
                 loss = self.evaluate(valid_data)
+                self.cache['valid_loss'] = loss
                 self.writer.add_scalar('loss/valid_loss', loss, self.step)
                 self.logger.info('Valid loss: %.6f' % loss)
                 self.handle_eval_other_infos('valid')
@@ -99,6 +111,7 @@ class Trainer:
 
             if test_data:
                 loss = self.evaluate(test_data)
+                self.cache['test_loss'] = loss
                 self.writer.add_scalar('loss/test_loss', loss, self.step)
                 self.logger.info('Test loss: %.6f' % loss)
                 self.handle_eval_other_infos('test')
@@ -156,6 +169,13 @@ class Trainer:
         pass
 
     @abstractmethod
+    def inference(self, *args):
+        """
+        Inference a dataset
+        :return:
+        """
+        pass
+
     def handle_print_other_infos(self):
         """
         Print other infos other than loss value in every `print_step`
@@ -164,7 +184,6 @@ class Trainer:
         """
         pass
 
-    @abstractmethod
     def handle_eval_other_infos(self, name):
         """
         Print other infos other than loss value in the end of evaluating a dataset
@@ -173,19 +192,10 @@ class Trainer:
         """
         pass
 
-    @abstractmethod
     def handle_epoch_other_infos(self):
         """
         Print other infos other than loss value in the end of every epoch
         The function can use intermediate data stored in self.cache by train_batch and evaluate_batch
         :return None
-        """
-        pass
-
-    @abstractmethod
-    def inference(self, dataset):
-        """
-        Inference a dataset
-        :return:
         """
         pass
