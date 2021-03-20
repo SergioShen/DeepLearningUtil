@@ -19,16 +19,25 @@ class Trainer:
         self.optimizer = optimizer
         self.lr_scheduler = lr_scheduler
         self.loss_function = loss_function
+        self.train_params = train_params
         self.output_dir = Path(train_params['output_dir'])
         self.batch_size = train_params['batch_size']
         self.n_epochs = train_params['n_epochs']
         self.start_epoch = train_params['start_epoch']
         self.grad_clip = train_params['grad_clip']
         self.print_step = train_params['print_step']
+        self.checkpoint_num = train_params['checkpoint_num']
         self.cache = dict()
         self.step = 0
 
+        self.saved_models = list()
+
     def save_model(self, epoch):
+        if len(self.saved_models) == self.checkpoint_num:
+            victim_path = self.saved_models.pop(0)
+            self.logger.info('Delete previous checkpoint %s' % victim_path)
+            victim_path.unlink()
+
         checkpoint = dict()
         checkpoint['model'] = self.model.state_dict()
         checkpoint['optimizer'] = self.optimizer.state_dict()
@@ -40,6 +49,7 @@ class Trainer:
         checkpoint['batch_size'] = self.batch_size
 
         save_path = self.output_dir / ('%0.3d.epoch.pt' % epoch)
+        self.saved_models.append(save_path)
         torch.save(checkpoint, save_path)
 
     def load_model(self, model_path):
@@ -48,9 +58,12 @@ class Trainer:
         else:
             checkpoint = torch.load(model_path, map_location='cpu')
         self.model.load_state_dict(checkpoint['model'])
-        self.optimizer.load_state_dict(checkpoint['optimizer'])
-        self.lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
-        self.loss_function = checkpoint['loss_function']
+        if self.optimizer and checkpoint['optimizer']:
+            self.optimizer.load_state_dict(checkpoint['optimizer'])
+        if self.lr_scheduler and checkpoint['lr_scheduler']:
+            self.lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
+        if self.loss_function and checkpoint['loss_function']:
+            self.loss_function = checkpoint['loss_function']
 
         self.step = checkpoint['step']
         self.start_epoch = checkpoint['epoch'] + 1
@@ -77,13 +90,13 @@ class Trainer:
                 step_loss = self.train_batch(batch_data)
                 print_loss += step_loss
                 epoch_loss += step_loss
-                self.writer.add_scalar('loss/step_loss', step_loss, self.step)
 
                 # Print current information every `print_every` steps
                 if self.step % self.print_step == 0:
                     print_loss_avg = print_loss / self.print_step
                     print_loss = 0
                     self.logger.info('Progress %.2f%%, Train loss: %.6f', self.step / total_steps * 100, print_loss_avg)
+                    self.writer.add_scalar('loss/print_loss', print_loss_avg, self.step)
                     self.writer.add_scalar('lr', self.optimizer.param_groups[0]['lr'], self.step)
                     self.handle_print_other_infos()
 
