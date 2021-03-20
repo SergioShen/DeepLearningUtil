@@ -31,7 +31,7 @@ class Subtokenizer:
         elif char.isupper():
             return Subtokenizer.UPPER
         else:
-            raise SyntaxError
+            raise SyntaxError("Invalid char: %s" % char)
 
     def __iter__(self):
         return self
@@ -61,14 +61,17 @@ class Subtokenizer:
                 self.pos += 1
             elif current_char_type == Subtokenizer.UPPER:
                 if last_char_type == Subtokenizer.UPPER:
-                    if self.pos + 1 < len(self.name) and self._get_char_type(
-                            self.name[self.pos + 1]) != Subtokenizer.UPPER:
+                    if self.pos + 1 < len(self.name) \
+                            and self._get_char_type(self.name[self.pos + 1]) != Subtokenizer.UPPER \
+                            and self._get_char_type(self.name[self.pos + 1]) != Subtokenizer.UNDER_SCORE:
                         return result
                     else:
                         result += self.name[self.pos]
                         self.pos += 1
                 else:
                     return result
+            else:
+                raise SyntaxError
             last_char_type = current_char_type
 
         return result
@@ -109,3 +112,19 @@ def subtokenize_tokens(tokens, lower=False, underscore_single=True, return_lengt
         return result, lengths
     else:
         return result
+
+
+def subtokens_to_tokens(subtokens):
+    result = list()
+    current = ''
+    for subtoken in subtokens:
+        if subtoken.endswith('@@'):
+            current += subtoken[:-2]
+        else:
+            current += subtoken
+            result.append(current)
+            current = ''
+    if len(current) != 0:
+        result.append(current)
+
+    return result
